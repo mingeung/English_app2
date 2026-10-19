@@ -678,6 +678,9 @@ input,textarea{font:inherit;color:inherit}
 .jstop.talk{border-radius:18px;width:62px;height:56px}
 .jstop.talk.cur{width:68px;height:62px;border-style:solid}
 .jstop.talk.ready{background:#fff;color:var(--mc);border:3px dashed var(--mc);box-shadow:0 6px 0 color-mix(in srgb,var(--mc) 40%,#fff)}
+.jstop.final.done{background:var(--mc);color:#fff}
+.jstop.final.cur{color:var(--mc)}
+.jstop.final.test{border-radius:20px;width:66px;height:60px}
 .jcap{position:absolute;top:calc(100% + 10px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:12px;font-weight:700;color:var(--sub)}
 /* 홈 상단 */
 .goalline{width:100%;text-align:left;color:var(--ink);display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #E1EDFA;border-radius:12px;background:#fff;margin-bottom:14px}
@@ -1470,7 +1473,7 @@ function renderTestResult() {
     ${(pre ? pre.items : []).map((a, i) => { const b = post && post.items.find(x => x.id === a.id); return `<div class="card" style="padding:14px 16px">
       <div style="font-weight:700">${i + 1}. ${pretty(a.ko)}</div><div class="small" style="margin:2px 0 10px"><span class="sub">정답</span> ${hl(a.en)}</div>
       ${row(a, 'pre', '시작 전')}${post ? row(b, 'post', '100일 후') : ''}</div>`; }).join('')}
-    <button class="btn" style="margin:6px 0 20px" onclick="App.go('record')">확인</button>
+    ${post && finalOpen() ? `<button class="btn" style="margin:6px 0 20px" onclick="App.graduate()">졸업하기</button>` : `<button class="btn" style="margin:6px 0 20px" onclick="App.go('record')">확인</button>`}
   </div></div>`, { noTabs: true });
 }
 
@@ -1574,12 +1577,55 @@ function chapterHtml(m) {
     ${journeyHtml(m)}
   </section>`;
 }
+/* Final: 100일 총복습 — Chapter 2개씩 5번 복습한 뒤 마지막 말하기 테스트 */
+const FINAL_N = 5, FINAL_C = '#E9A23B';
+const finalChaps = k => [k * 2 - 1, k * 2];
+const finalDoneOf = k => !!(S.finalDone || {})[k];
+const finalOpen = () => mapCleared(MAP_COUNT);
+const postDone = () => !!(S.tests && S.tests.post);
+function finalCur() { if (!finalOpen()) return null; for (let k = 1; k <= FINAL_N; k++) if (!finalDoneOf(k)) return k; return postDone() ? null : FINAL_N + 1; }
+// Day마다 가장 많이 틀린 문장 하나씩
+function finalItems(k) {
+  const pool = COURSE.filter(c => c.sentences.length); // 프로토타입: 예문이 아직 없는 Day는 샘플 예문으로 채움
+  return finalChaps(k).flatMap(mapDays).map((d, i) => {
+    const c0 = courseDay(d), c = c0 && c0.sentences.length ? c0 : pool[i % pool.length];
+    const s = shuffle(c.sentences).sort((a, b) => sStat(b.id).w - sStat(a.id).w)[0];
+    return { d, c, s, weak: sStat(s.id).w > 0 };
+  });
+}
+const TROPHY = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2.5 2.5 0 0 0 2.6 4M17 6h2.5a2.5 2.5 0 0 1-2.6 4M12 14v3M8.5 20h7l-.8-3H9.3z"/></svg>';
+function finalHtml() {
+  const open = finalOpen(), cur = finalCur();
+  const stops = [...Array(FINAL_N)].map((_, i) => i + 1).concat(FINAL_N + 1);
+  const doneOf = k => k > FINAL_N ? postDone() : finalDoneOf(k);
+  const ROW = 88, Hh = (stops.length - 1) * ROW + 130, Y = i => 70 + i * ROW, X = i => STOP_X[i];
+  const firstOpen = stops.findIndex(k => !doneOf(k)), upto = firstOpen < 0 ? stops.length - 1 : firstOpen;
+  const pts = stops.map((_, i) => [X(i), Y(i)]);
+  const curve = list => list.map(([x, y], i) => i ? `C${list[i - 1][0]},${(list[i - 1][1] + y) / 2} ${x},${(list[i - 1][1] + y) / 2} ${x},${y}` : `M${x},${y}`).join(' ');
+  const stopHtml = (k, i) => {
+    const pos = `left:${X(i)}%;top:${Y(i)}px`, st = doneOf(k) ? 'done' : k === cur ? 'cur' : '';
+    if (k > FINAL_N) return `<button class="jstop final test ${st}" style="${pos}" onclick="App.finalTest()" aria-label="마지막 말하기 테스트">${TROPHY}${st === 'cur' ? '<span class="jtip">마지막 말하기 테스트</span>' : ''}<span class="jcap">마지막 테스트</span></button>`;
+    const [a, b] = finalChaps(k);
+    return `<button class="jstop final ${st}" style="${pos}" onclick="App.final(${k})" aria-label="총복습 ${k}">${STEP_IC.review}${st === 'cur' ? `<span class="jtip">총복습 ${k} 시작하기</span>` : ''}<span class="jcap">Chapter ${a}·${b}</span></button>`;
+  };
+  return `<section class="chap" id="chapFinal" style="--mc:${FINAL_C}">
+    <div class="chaphead"><div><b>Final</b><small>100일 총복습 · ${!open ? '아직 전' : cur ? '진행 중' : '완료'}</small></div></div>
+    <div class="journey" style="--mc:${FINAL_C};height:${Hh}px">
+      <svg viewBox="0 0 100 ${Hh}" preserveAspectRatio="none" width="100%" height="${Hh}" aria-hidden="true">
+        <path d="${curve(pts)}" fill="none" stroke="#E4E9F0" stroke-width="16" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        ${open && upto > 0 ? `<path d="${curve(pts.slice(0, upto + 1))}" fill="none" stroke="color-mix(in srgb, ${FINAL_C} 32%, #fff)" stroke-width="16" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` : ''}
+      </svg>
+      ${stops.map(stopHtml).join('')}
+    </div>
+  </section>`;
+}
 function renderHome() {
   if (!S.onboarded) return renderOB();
   render(`<div class="home">
     <div class="hhead2"><div class="topstats"><button class="hstat" onclick="App.go('record')">${IC.fire}<b>${streak()}일</b><span>학습 기록</span><i class="hchev">›</i></button></div><button class="iconbtn plain" onclick="App.go('settings')" aria-label="설정">${IC.gear}</button></div>
     ${goalCard()}
     ${MAPS.map((_, i) => chapterHtml(i + 1)).join('')}
+    ${finalHtml()}
   </div>`);
   // 오늘 할 학습이 화면 가운데 오도록
   const cur = document.querySelector('.jstop.cur');
@@ -1884,6 +1930,58 @@ function redoQ() {
     onNext: () => { RD.i++; RD.first = true; if (RD.i < RD.items.length) return redoQ(); nextStep(); } });
 }
 
+/* ---------- Final 총복습 ---------- */
+let FR = null;
+function startFinal(k) {
+  stopSpeech(); F = null;
+  const items = finalItems(k);
+  FR = { k, items, i: 0, first: true, n: items.length, ok: 0, weak: { n: items.filter(x => x.weak).length, ok: 0 }, m0: S.mastered.length };
+  const [a, b] = finalChaps(k), weakN = FR.weak.n;
+  render(`<div style="min-height:100%;display:flex;flex-direction:column">${fhead(0, '')}<div class="pad" style="flex:1;padding-top:28px">
+    <span class="stepchip">Final · 총복습 ${k}/${FINAL_N}</span>
+    <div class="h1" style="margin-top:14px">Chapter ${a}·${b} 표현을<br><span class="g">${items.length}문장</span>으로 복습해요</div>
+    <p class="sub" style="margin-top:6px">Day마다 한 문장씩, 자주 틀렸던 문장을 먼저 골랐어요.<br>약 ${Math.max(1, Math.round(items.length * .6))}분이면 끝나요.</p>
+    <div style="margin-top:22px">
+      ${[a, b].map(m => `<div class="revrow"><span class="pill">CH ${m}</span><span style="flex:1;min-width:0"><b>Chapter ${m}</b><small>Day ${(m - 1) * MAP_SIZE + 1} ~ ${m * MAP_SIZE}</small></span><b class="g">${items.filter(x => mapOf(x.d) === m).length}문장</b></div>`).join('')}
+      ${weakN ? `<div class="revrow"><span class="pill gray">다시</span><span style="flex:1;min-width:0"><b>자주 틀렸던 문장</b><small>이번엔 맞혀봐요</small></span><b class="g">${weakN}문장</b></div>` : ''}
+    </div></div>
+    <div class="bottombar"><button class="btn" onclick="finalQ()">복습 시작</button></div></div>`, { noTabs: true });
+  studying = true;
+}
+function finalQ() {
+  const it = FR.items[FR.i], { d, s, c } = it;
+  showQ({
+    sid: s.id, mode: 'both', target: s.en, ko: s.ko, pct: FR.i / FR.items.length * 100, cnt: `${FR.i + 1}/${FR.items.length}`,
+    chip: `<span class="stepchip">Final · 총복습 ${FR.k} <em>Day ${d}</em></span>`, title: '', tag: it.again ? '한 번 더' : null, prompt: qPrompt(c, s),
+    onAnswer: (ok, sp) => {
+      const h = H();
+      if (FR.first && !it.again) { const good = ok && !Q.hinted; if (good) { FR.ok++; if (it.weak) FR.weak.ok++; } if (!good) FR.items.push({ d, s, c, again: true }); }
+      if (sp) h.speak++; if (ok) master(s.id); FR.first = false; save();
+    },
+    onNext: () => {
+      FR.i++; FR.first = true;
+      if (FR.i < FR.items.length) return finalQ();
+      if (!S.finalDone) S.finalDone = {}; S.finalDone[FR.k] = today(); save(); renderFinalDone();
+    },
+  });
+}
+function renderFinalDone() {
+  stopSpeech(); studying = false;
+  const { k } = FR, [a, b] = finalChaps(k), gain = S.mastered.length - FR.m0, last = k === FINAL_N;
+  render(`<div class="donewrap mapclear go" style="padding-top:56px;--mc:${FINAL_C}">
+    <div class="stamp">${STEP_IC.review.replace('width="22" height="22"', 'width="50" height="50"')}<span>FINAL ${k}/${FINAL_N}</span></div>
+    <div class="donemsg"><b>총복습 ${k}을 마쳤어요!</b><span>${last ? '이제 마지막 말하기 테스트만 남았어요.' : `다음은 Chapter ${a + 2}·${b + 2} 총복습이에요.`}</span></div>
+    ${growHtml([
+      [`Chapter ${a}·${b} 표현을 복습했어요`, `${FR.ok}/${FR.n} 정답`],
+      FR.weak.n && [`자주 틀렸던 문장을 다시 맞혔어요`, `${FR.weak.ok}/${FR.weak.n}`, FR.weak.ok > 0],
+      gain > 0 ? [`말할 수 있는 문장이 늘었어요 <small>총 ${S.mastered.length}문장</small>`, `+${gain}`, true] : [`지금 말할 수 있는 문장`, `${S.mastered.length}문장`],
+    ])}
+    <div class="spacer"></div>
+    ${last ? `<button class="btn" onclick="App.finalTest()">마지막 말하기 테스트 하러 가기</button><button class="link" onclick="App.go('home')">나중에 할게요</button>`
+      : `<button class="btn" onclick="App.final(${k + 1})">이어서 총복습 ${k + 1} 하기</button><button class="link" onclick="App.go('home')">홈으로</button>`}
+  </div>`, { noTabs: true });
+}
+
 /* ---------- 맵 정복 ---------- */
 function renderMapClear(m) {
   stopSpeech();
@@ -2128,6 +2226,7 @@ function renderSettings() {
       <button class="btn ghost sm" style="margin-top:8px" onclick="App.nextDay()">하루 지나기 (복습 확인용)</button>
       <button class="btn ghost sm" style="margin-top:8px" onclick="App.jumpDay(10)">10일차로 이동 (맵 정복 체험)</button>
       <button class="btn ghost sm" style="margin-top:8px" onclick="App.talkDemo()">회화 연습 미리보기</button>
+      <button class="btn ghost sm" style="margin-top:8px" onclick="App.finalDemo()">Final 총복습 미리보기</button>
       <button class="btn ghost sm" style="margin-top:8px" onclick="App.postTest()">사후 테스트 미리보기</button>
       <button class="btn ghost sm" style="margin-top:8px" onclick="App.graduate()">병아리 졸업 화면 미리보기</button>
       <button class="btn ghost sm" style="margin-top:8px;color:var(--red)" onclick="App.reset()">처음부터 다시 (데이터 초기화)</button></div></div>`);
@@ -2320,12 +2419,12 @@ function finishMission() {
   render(`<div class="donewrap" style="padding-top:56px">
     <div class="flame" style="background:#E8F3FE;color:var(--orange-d)">${IC.mic.replace('<svg', '<svg width="46" height="46"')}</div>
     <div class="h1" style="margin-top:18px">대화를 끝까지 해냈어요!</div>
-    <p class="sub" style="margin-top:6px">${MS.session ? `Chapter ${MS.session} 완료! ${MS.session < MAP_COUNT ? `이제 Chapter ${MS.session + 1}이 열렸어요.` : '100일 여정을 모두 마쳤어요.'}` : MS.scn.title}</p>
+    <p class="sub" style="margin-top:6px">${MS.session ? `Chapter ${MS.session} 완료! ${MS.session < MAP_COUNT ? `이제 Chapter ${MS.session + 1}이 열렸어요.` : '이제 Final 총복습이 열렸어요.'}` : MS.scn.title}</p>
     <div class="mres"><div><b>${rec.used}/${rec.total}</b><small>배운 표현으로 대답</small></div><div><b>${words}</b><small>내가 말한 단어</small></div></div>
     ${prev ? `<div class="mcmp"><span class="small sub">지난 대화 연습보다</span><b>${words - pw >= 0 ? '+' : ''}${words - pw}단어</b> 더 말했어요</div>` : ''}
     <button class="btn ghost sm" style="margin-top:16px;width:auto;padding:10px 18px" onclick="playRec(${S.recs.length - 1})">${IC.spk.replace('<svg', '<svg width="18" height="18"')} 내 대화 다시 듣기</button>
     <div class="spacer"></div>
-    ${MS.session === MAP_COUNT ? '<button class="btn" onclick="App.graduate()">졸업하기</button>' : `<button class="btn" onclick="App.go('home')">홈으로</button>`}
+    ${MS.session === MAP_COUNT ? '<button class="btn" onclick="App.final(1)">Final 총복습 하러 가기</button>' : `<button class="btn" onclick="App.go('home')">홈으로</button>`}
     <button class="link" onclick="App.go('record')">성장 기록 보기</button>
   </div>`, { noTabs: true });
 }
@@ -2423,6 +2522,23 @@ const App = {
     const t = document.querySelector('#chap1 .jstop.talk.cur'), v = $('#view');
     if (t) { const r = t.getBoundingClientRect(), vr = v.getBoundingClientRect(); v.scrollTop += r.top - vr.top - (v.clientHeight - r.height) / 2; }
     toast('Day 10까지 완료! 회화 연습을 해봐요');
+  },
+  final(k) {
+    if (!finalOpen()) return toast('Chapter 10 회화 연습까지 마치면 Final이 열려요');
+    const cur = finalCur(); if (!finalDoneOf(k) && cur !== k) return toast(`총복습 ${cur}을 먼저 해요`);
+    startFinal(k);
+  },
+  finalTest() {
+    if (!finalOpen()) return toast('Chapter 10 회화 연습까지 마치면 Final이 열려요');
+    if (finalCur() && finalCur() <= FINAL_N) return toast(`총복습 ${FINAL_N}개를 마치면 마지막 테스트가 열려요`);
+    if (postDone()) return renderTestResult();
+    App.postTest();
+  },
+  /* 시연: 100일 + Chapter 10 회화 연습까지 끝낸 상태 → Final 시작 */
+  finalDemo() {
+    for (let m = 1; m <= MAP_COUNT; m++) S.seen['note' + m] = 1; // 쪽지 팝업은 생략
+    S.talkDone = {}; for (let m = 1; m <= MAP_COUNT; m++) S.talkDone[m] = true; App.jumpDay(MAP_COUNT * MAP_SIZE + 1);
+    S.finalDone = {}; if (S.tests) delete S.tests.post; save(); go('home'); toast('100일 완료! Final 총복습을 해봐요');
   },
   talk(m) {
     if (!talkOpen(m)) return toast(`Chapter ${m}의 표현 10개를 모두 배우면 회화 연습이 열려요`);
